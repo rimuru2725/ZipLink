@@ -2,110 +2,188 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const nodemailer = require('nodemailer');
+const cors = require('cors');
+
 const app = express();
 const port = 3000;
 
-// Set up multer for file storage
+// Create uploads directory if it doesn't exist
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
+// Configure multer for file storage
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, 'uploads/');
     },
     filename: (req, file, cb) => {
-        cb(null, Date.now() + path.extname(file.originalname));
-    },
+        // Generate unique filename with original extension
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
 });
 
+// Configure multer with file size limits and file filter
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB limit
+    limits: {
+        fileSize: 100 * 1024 * 1024, // 100 MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        // Add file type restrictions if needed
+        cb(null, true);
+    }
 });
 
-// Middleware to parse incoming JSON data
+// Enable CORS with specific options
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type']
+}));
+
+// Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // In-memory storage for file data
-const fileData = {};
+const fileData = new Map();
+
+// Clean up expired files periodically (every hour)
+setInterval(() => {
+    const currentTime = Date.now();
+    for (const [filename, data] of fileData.entries()) {
+        if (currentTime - data.timestamp > 24 * 60 * 60 * 1000) { // 24 hours
+            // Delete expired file
+            const filePath = path.join(uploadDir, filename);
+            if (fs.existsSync(filePath)) {
+                fs.unlink(filePath, (err) => {
+                    if (err) console.error(`Error deleting expired file ${filename}:`, err);
+                    else console.log(`Deleted expired file: ${filename}`);
+                });
+            }
+            fileData.delete(filename);
+        }
+    }
+}, 60 * 60 * 1000); // Run every hour
 
 // Function to log file access
 function logFileAccess(filename, ipAddress) {
     const logMessage = `${new Date().toISOString()} - File: ${filename}, Accessed by IP: ${ipAddress}\n`;
-    fs.appendFileSync('access.log', logMessage, 'utf8');
-    console.log(logMessage); // Optional: Log in the console as well
+    fs.appendFile('access.log', logMessage, 'utf8', (err) => {
+        if (err) console.error('Error writing to access log:', err);
+    });
 }
 
 // Route to handle file uploads
 app.post('/upload', upload.single('file'), (req, res) => {
-    const password = req.body.password; // Password sent from the frontend
-    if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No file uploaded' });
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'No file uploaded'
+            });
+        }
+
+        // Store file data with password and timestamp
+        fileData.set(req.file.filename, {
+            password: req.body.password || '',
+            timestamp: Date.now(),
+            originalName: req.file.originalname
+        });
+
+        res.json({
+            success: true,
+            message: 'File uploaded successfully!',
+            filename: req.file.filename
+        });
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during upload'
+        });
     }
-
-    // Store the password, filename, and timestamp
-    fileData[req.file.filename] = {
-        password: password || null, // Store password if provided
-        timestamp: Date.now(), // Store the upload time
-    };
-
-    res.json({
-        success: true,
-        message: 'File uploaded successfully!',
-        filename: req.file.filename,
-    });
 });
 
 // Route to handle file access
 app.get('/access', (req, res) => {
-    const { filename, password } = req.query; // Get filename and password from query parameters
+    try {
+        const { filename, password } = req.query;
 
-    // Check if the file exists in memory (fileData object)
-    if (!fileData[filename]) {
-        return res.status(404).json({ success: false, message: 'File not found or has expired.' });
-    }
-
-    // Check if the file has expired
-    const currentTime = Date.now();
-    const expirationTime = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-    if (currentTime - fileData[filename].timestamp > expirationTime) {
-        // Delete the file if expired
-        const filePath = path.join(__dirname, 'uploads', filename);
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+        // Check if file exists in our records
+        if (!fileData.has(filename)) {
+            return res.status(404).json({
+                success: false,
+                message: 'File not found or has expired.'
+            });
         }
-        delete fileData[filename];
-        return res.status(410).json({ success: false, message: 'File has expired and was deleted.' });
-    }
 
-    // Check if the password matches
-    if (fileData[filename].password !== password) {
-        return res.status(403).json({ success: false, message: 'Incorrect password.' });
-    }
+        const fileInfo = fileData.get(filename);
 
-    // Serve the file if everything is valid
-    const filePath = path.join(__dirname, 'uploads', filename);
-    if (fs.existsSync(filePath)) {
-        // Log file access details
+        // Check if file has expired (24 hours)
+        if (Date.now() - fileInfo.timestamp > 24 * 60 * 60 * 1000) {
+            const filePath = path.join(uploadDir, filename);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+            fileData.delete(filename);
+            return res.status(410).json({
+                success: false,
+                message: 'File has expired and was deleted.'
+            });
+        }
+
+        // Check password if one was set
+        if (fileInfo.password && fileInfo.password !== password) {
+            return res.status(403).json({
+                success: false,
+                message: 'Incorrect password.'
+            });
+        }
+
+        const filePath = path.join(uploadDir, filename);
+        
+        // Check if file exists on disk
+        if (!fs.existsSync(filePath)) {
+            fileData.delete(filename);
+            return res.status(404).json({
+                success: false,
+                message: 'File not found on server.'
+            });
+        }
+
+        // Log access
         logFileAccess(filename, req.ip);
 
-        // Send the file
+        // Set headers for file download
+        res.setHeader('Content-Disposition', `attachment; filename="${fileInfo.originalName}"`);
+        res.setHeader('Content-Type', 'application/octet-stream');
+
+        // Send file
         res.sendFile(filePath);
-    } else {
-        res.status(404).json({ success: false, message: 'File not found.' });
+    } catch (error) {
+        console.error('Access error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during file access'
+        });
     }
 });
 
-// Route to handle file download
-app.get('/download/:filename', (req, res) => {
-    const filePath = path.join(__dirname, 'uploads', req.params.filename);
-    if (fs.existsSync(filePath)) {
-        res.sendFile(filePath);
-    } else {
-        res.status(404).send('File not found.');
-    }
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+    });
 });
 
-// Start the server
+// Start server
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
+    console.log(`Upload directory: ${uploadDir}`);
 });

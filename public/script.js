@@ -1,6 +1,3 @@
-// QRCode is now available globally because of the CDN script
-
-// Handle Role Selection (Sender or Receiver)
 document.getElementById('sender-btn').addEventListener('click', () => {
     document.getElementById('sender-form').style.display = 'block';
     document.getElementById('recipient-form').style.display = 'none';
@@ -14,22 +11,32 @@ document.getElementById('receiver-btn').addEventListener('click', () => {
 // Drag-and-Drop Functionality
 const dropArea = document.getElementById('drop-area');
 const fileInput = document.getElementById('file');
-const filePreview = document.getElementById('file-preview'); // To show the file name
+const filePreview = document.getElementById('file-preview');
 
-dropArea.addEventListener('dragover', (event) => {
-    event.preventDefault();
-    dropArea.classList.add('bg-info');
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropArea.addEventListener(eventName, preventDefaults, false);
 });
 
-dropArea.addEventListener('dragleave', () => {
-    dropArea.classList.remove('bg-info');
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+['dragenter', 'dragover'].forEach(eventName => {
+    dropArea.addEventListener(eventName, () => {
+        dropArea.classList.add('dragover');
+    });
 });
 
-dropArea.addEventListener('drop', (event) => {
-    event.preventDefault();
-    dropArea.classList.remove('bg-info');
-    const files = event.dataTransfer.files;
-    fileInput.files = files; // Assign files to hidden input
+['dragleave', 'drop'].forEach(eventName => {
+    dropArea.addEventListener(eventName, () => {
+        dropArea.classList.remove('dragover');
+    });
+});
+
+dropArea.addEventListener('drop', (e) => {
+    const files = e.dataTransfer.files;
+    fileInput.files = files;
     showFilePreview(files[0]);
 });
 
@@ -38,133 +45,138 @@ dropArea.addEventListener('click', () => {
     fileInput.click();
 });
 
-// Show the file name when the user selects a file
 fileInput.addEventListener('change', () => {
     showFilePreview(fileInput.files[0]);
 });
 
-// Function to display the file name and allow removing the file
 function showFilePreview(file) {
     if (file) {
         filePreview.innerHTML = `
-            <p><strong>File Selected:</strong> ${file.name} <span class="remove-file" onclick="removeFile()">❌</span></p>
+            <div class="d-flex align-items-center justify-content-between">
+                <span><i class="bi bi-file-earmark me-2"></i>${file.name}</span>
+                <span class="remove-file" onclick="removeFile()">❌</span>
+            </div>
         `;
         filePreview.style.display = 'block';
     }
 }
 
-// Function to remove the selected file
 function removeFile() {
-    fileInput.value = '';  // Clear the input field
-    filePreview.style.display = 'none'; // Hide the file preview
+    fileInput.value = '';
+    filePreview.style.display = 'none';
 }
 
-// Upload file functionality for sender (User 1)
-document.getElementById('upload-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
+// Upload form handling
+document.getElementById('upload-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-    const passwordInput = document.getElementById('password');
+    const file = fileInput.files[0];
+    if (!file) {
+        alert('Please select a file to upload.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('password', document.getElementById('password').value);
+
     const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text'); // For displaying percentage
+    const progressText = document.getElementById('progress-text');
     const progressContainer = document.getElementById('upload-progress');
     const uploadStatus = document.getElementById('upload-status');
     const qrCodeSection = document.getElementById('qr-code');
     const qrCodeContainer = document.getElementById('qr-code-container');
 
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-    formData.append('password', passwordInput.value);
-
     progressContainer.style.display = 'block';
-    progressBar.style.width = '0%';
-    progressText.textContent = '0%';
+    uploadStatus.style.display = 'none';
+    qrCodeSection.style.display = 'none';
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/upload', true);
+    try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'http://localhost:3000/upload', true);
 
-    // Update progress bar
-    xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable) {
-            const percentComplete = (event.loaded / event.total) * 100;
-            progressBar.style.width = `${percentComplete}%`;
-            progressText.textContent = `${Math.round(percentComplete)}%`;  // Show percentage inside progress bar
-
-            // Change the color based on progress
-            if (percentComplete <= 50) {
-                progressBar.style.backgroundColor = 'black'; // 0-50% -> black
-            } else {
-                progressBar.style.backgroundColor = 'blue'; // 51-100% -> blue
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percentComplete = (event.loaded / event.total) * 100;
+                progressBar.style.width = `${percentComplete}%`;
+                progressText.textContent = `${Math.round(percentComplete)}%`;
             }
-        }
-    });
+        };
 
-    xhr.onload = async () => {
-        if (xhr.status === 200) {
-            const result = JSON.parse(xhr.responseText);
-            if (result.success) {
-                const fileUrl = `http://localhost:3000/access?filename=${result.filename}&password=${passwordInput.value}`;
-                uploadStatus.textContent = `File uploaded successfully! Share this link: ${fileUrl}`;
-                uploadStatus.classList.add('success');
-                uploadStatus.style.display = 'block';
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                const response = JSON.parse(xhr.responseText);
+                if (response.success) {
+                    const fileUrl = `http://localhost:3000/access?filename=${response.filename}&password=${document.getElementById('password').value}`;
+                    
+                    uploadStatus.innerHTML = `
+                        <div class="alert alert-success">
+                            File uploaded successfully!<br>
+                            Share this link: <a href="${fileUrl}" class="text-light">${fileUrl}</a>
+                        </div>
+                    `;
+                    uploadStatus.style.display = 'block';
 
-                // Generate QR Code
-                qrCodeContainer.innerHTML = '';
-                QRCode.toCanvas(qrCodeContainer, fileUrl, { width: 200 }, (error) => {
-                    if (error) console.error('Error generating QR code:', error);
-                    else qrCodeSection.style.display = 'block';
-                });
+                    // Generate QR Code
+                    qrCodeContainer.innerHTML = '';
+                    new QRCode(qrCodeContainer, {
+                        text: fileUrl,
+                        width: 128,
+                        height: 128
+                    });
+                    qrCodeSection.style.display = 'block';
+                }
             } else {
-                uploadStatus.textContent = result.message;
+                uploadStatus.innerHTML = '<div class="alert alert-danger">Upload failed. Please try again.</div>';
                 uploadStatus.style.display = 'block';
             }
-        } else {
-            uploadStatus.textContent = 'An error occurred. Please try again.';
+        };
+
+        xhr.onerror = function() {
+            uploadStatus.innerHTML = '<div class="alert alert-danger">Upload failed. Please try again.</div>';
             uploadStatus.style.display = 'block';
-        }
-    };
+        };
 
-    xhr.onerror = () => {
-        uploadStatus.textContent = 'An error occurred during the upload.';
+        xhr.send(formData);
+    } catch (error) {
+        uploadStatus.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
         uploadStatus.style.display = 'block';
-    };
-
-    xhr.send(formData);
+    }
 });
 
-// Access file functionality for recipient (User 2)
-document.getElementById('access-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
+// Access form handling
+document.getElementById('access-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-    const filenameInput = document.getElementById('access-filename');
-    const passwordInput = document.getElementById('access-password');
-
-    const filename = filenameInput.value.trim();
-    const password = passwordInput.value.trim();
-
+    const filename = document.getElementById('access-filename').value.trim();
+    const password = document.getElementById('access-password').value.trim();
     const accessStatus = document.getElementById('access-status');
 
     try {
-        const response = await fetch(`/access?filename=${filename}&password=${password}`, {
-            method: 'GET',
-        });
-
+        const response = await fetch(`http://localhost:3000/access?filename=${filename}&password=${password}`);
+        
         if (response.ok) {
-            const fileBlob = await response.blob();
-            const fileURL = URL.createObjectURL(fileBlob);
-            const link = document.createElement('a');
-            link.href = fileURL;
-            link.download = filename;
-            link.click();
-            accessStatus.textContent = 'File downloaded successfully!';
+            // If response is OK, create a blob and download it
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            accessStatus.innerHTML = '<div class="alert alert-success">File downloaded successfully!</div>';
             accessStatus.style.display = 'block';
         } else {
+            // If response is not OK, show error message
             const error = await response.json();
-            accessStatus.textContent = `Error: ${error.message}`;
+            accessStatus.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
             accessStatus.style.display = 'block';
         }
     } catch (error) {
-        console.error('Error accessing file:', error);
-        accessStatus.textContent = 'An error occurred. Please try again.';
+        accessStatus.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
         accessStatus.style.display = 'block';
     }
 });
