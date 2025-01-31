@@ -1,20 +1,45 @@
-document.getElementById('sender-btn').addEventListener('click', () => {
-    document.getElementById('sender-form').style.display = 'block';
-    document.getElementById('recipient-form').style.display = 'none';
+// DOM Elements
+const uploadTab = document.getElementById('upload-tab');
+const downloadTab = document.getElementById('download-tab');
+const uploadSection = document.getElementById('upload-section');
+const downloadSection = document.getElementById('download-section');
+const dropZone = document.querySelector('.drop-zone');
+const fileInput = document.getElementById('file-input');
+const fileList = document.getElementById('file-list');
+const uploadBtn = document.getElementById('upload-btn');
+const uploadModal = document.getElementById('upload-modal');
+const themeToggle = document.getElementById('theme-toggle');
+
+// State management
+let files = new Map(); // Store file objects with metadata
+let isDarkTheme = true;
+
+// Theme Toggle
+themeToggle.addEventListener('click', () => {
+    isDarkTheme = !isDarkTheme;
+    document.body.classList.toggle('light-theme');
+    themeToggle.querySelector('.material-icons').textContent = 
+        isDarkTheme ? 'dark_mode' : 'light_mode';
 });
 
-document.getElementById('receiver-btn').addEventListener('click', () => {
-    document.getElementById('recipient-form').style.display = 'block';
-    document.getElementById('sender-form').style.display = 'none';
+// Tab Navigation
+uploadTab.addEventListener('click', () => {
+    uploadTab.classList.add('bg-blue-500');
+    downloadTab.classList.remove('bg-blue-500');
+    uploadSection.classList.remove('hidden');
+    downloadSection.classList.add('hidden');
 });
 
-// Drag-and-Drop Functionality
-const dropArea = document.getElementById('drop-area');
-const fileInput = document.getElementById('file');
-const filePreview = document.getElementById('file-preview');
+downloadTab.addEventListener('click', () => {
+    downloadTab.classList.add('bg-blue-500');
+    uploadTab.classList.remove('bg-blue-500');
+    downloadSection.classList.remove('hidden');
+    uploadSection.classList.add('hidden');
+});
 
+// Drag and Drop Handling
 ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    dropArea.addEventListener(eventName, preventDefaults, false);
+    dropZone.addEventListener(eventName, preventDefaults, false);
 });
 
 function preventDefaults(e) {
@@ -23,160 +48,270 @@ function preventDefaults(e) {
 }
 
 ['dragenter', 'dragover'].forEach(eventName => {
-    dropArea.addEventListener(eventName, () => {
-        dropArea.classList.add('dragover');
+    dropZone.addEventListener(eventName, () => {
+        dropZone.classList.add('dragover');
     });
 });
 
 ['dragleave', 'drop'].forEach(eventName => {
-    dropArea.addEventListener(eventName, () => {
-        dropArea.classList.remove('dragover');
+    dropZone.addEventListener(eventName, () => {
+        dropZone.classList.remove('dragover');
     });
 });
 
-dropArea.addEventListener('drop', (e) => {
-    const files = e.dataTransfer.files;
-    fileInput.files = files;
-    showFilePreview(files[0]);
-});
+dropZone.addEventListener('drop', handleDrop);
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', handleFileSelect);
 
-// Click to trigger file input
-dropArea.addEventListener('click', () => {
-    fileInput.click();
-});
-
-fileInput.addEventListener('change', () => {
-    showFilePreview(fileInput.files[0]);
-});
-
-function showFilePreview(file) {
-    if (file) {
-        filePreview.innerHTML = `
-            <div class="d-flex align-items-center justify-content-between">
-                <span><i class="bi bi-file-earmark me-2"></i>${file.name}</span>
-                <span class="remove-file" onclick="removeFile()">❌</span>
-            </div>
-        `;
-        filePreview.style.display = 'block';
-    }
+// File Handling Functions
+function handleDrop(e) {
+    const droppedFiles = e.dataTransfer.files;
+    handleFiles(droppedFiles);
 }
 
-function removeFile() {
-    fileInput.value = '';
-    filePreview.style.display = 'none';
+function handleFileSelect(e) {
+    const selectedFiles = e.target.files;
+    handleFiles(selectedFiles);
 }
 
-// Upload form handling
-document.getElementById('upload-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
+function handleFiles(fileList) {
+    Array.from(fileList).forEach(file => {
+        // Generate unique ID for each file
+        const fileId = generateFileId();
+        files.set(fileId, {
+            file: file,
+            status: 'pending',
+            progress: 0
+        });
+        displayFile(file, fileId);
+    });
+    updateUploadButton();
+}
 
-    const file = fileInput.files[0];
-    if (!file) {
-        alert('Please select a file to upload.');
-        return;
+function generateFileId() {
+    return Math.random().toString(36).substr(2, 9);
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function getFileIcon(fileName) {
+    const extension = fileName.split('.').pop().toLowerCase();
+    const iconMap = {
+        pdf: 'picture_as_pdf',
+        jpg: 'image',
+        jpeg: 'image',
+        png: 'image',
+        gif: 'gif',
+        doc: 'description',
+        docx: 'description',
+        xls: 'table_chart',
+        xlsx: 'table_chart',
+        zip: 'folder_zip',
+        rar: 'folder_zip'
+    };
+    return iconMap[extension] || 'insert_drive_file';
+}
+
+function displayFile(file, fileId) {
+    const fileElement = document.createElement('div');
+    fileElement.className = 'bg-gray-800 rounded-lg p-4 flex items-center space-x-4';
+    fileElement.innerHTML = `
+        <span class="material-icons text-blue-500">${getFileIcon(file.name)}</span>
+        <div class="flex-1">
+            <div class="font-medium truncate">${file.name}</div>
+            <div class="text-sm text-gray-400">${formatFileSize(file.size)}</div>
+        </div>
+        <div class="file-progress hidden">
+            <svg class="progress-ring" width="24" height="24">
+                <circle class="progress-ring-circle" stroke="currentColor" stroke-width="2"
+                    fill="transparent" r="10" cx="12" cy="12"/>
+            </svg>
+        </div>
+        <button onclick="removeFile('${fileId}')" class="text-red-500 hover:text-red-400">
+            <span class="material-icons">close</span>
+        </button>
+    `;
+    fileList.appendChild(fileElement);
+}
+
+function removeFile(fileId) {
+    const fileElements = fileList.children;
+    for (let i = 0; i < fileElements.length; i++) {
+        if (fileElements[i].dataset.fileId === fileId) {
+            fileElements[i].remove();
+            break;
+        }
     }
+    files.delete(fileId);
+    updateUploadButton();
+}
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('password', document.getElementById('password').value);
+function updateUploadButton() {
+    uploadBtn.disabled = files.size === 0;
+    uploadBtn.classList.toggle('opacity-50', files.size === 0);
+}
 
-    const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text');
-    const progressContainer = document.getElementById('upload-progress');
-    const uploadStatus = document.getElementById('upload-status');
-    const qrCodeSection = document.getElementById('qr-code');
-    const qrCodeContainer = document.getElementById('qr-code-container');
+// Upload Handling
+uploadBtn.addEventListener('click', handleUpload);
 
-    progressContainer.style.display = 'block';
-    uploadStatus.style.display = 'none';
-    qrCodeSection.style.display = 'none';
+async function handleUpload() {
+    if (files.size === 0) return;
 
-    try {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'http://localhost:3000/upload', true);
+    const password = document.querySelector('input[type="password"]').value;
+    const expiryTime = document.querySelector('select').value;
 
-        xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-                const percentComplete = (event.loaded / event.total) * 100;
-                progressBar.style.width = `${percentComplete}%`;
-                progressText.textContent = `${Math.round(percentComplete)}%`;
-            }
-        };
+    for (const [fileId, fileData] of files) {
+        try {
+            const formData = new FormData();
+            formData.append('file', fileData.file);
+            formData.append('password', password);
+            formData.append('expiryHours', expiryTime);
 
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                const response = JSON.parse(xhr.responseText);
-                if (response.success) {
-                    const fileUrl = `http://localhost:3000/access?filename=${response.filename}&password=${document.getElementById('password').value}`;
-                    
-                    uploadStatus.innerHTML = `
-                        <div class="alert alert-success">
-                            File uploaded successfully!<br>
-                            Share this link: <a href="${fileUrl}" class="text-light">${fileUrl}</a>
-                        </div>
-                    `;
-                    uploadStatus.style.display = 'block';
-
-                    // Generate QR Code
-                    qrCodeContainer.innerHTML = '';
-                    new QRCode(qrCodeContainer, {
-                        text: fileUrl,
-                        width: 128,
-                        height: 128
-                    });
-                    qrCodeSection.style.display = 'block';
-                }
+            const response = await uploadFile(formData, fileId);
+            if (response.success) {
+                showUploadSuccess(response);
             } else {
-                uploadStatus.innerHTML = '<div class="alert alert-danger">Upload failed. Please try again.</div>';
-                uploadStatus.style.display = 'block';
+                showError('Upload failed: ' + response.message);
             }
-        };
-
-        xhr.onerror = function() {
-            uploadStatus.innerHTML = '<div class="alert alert-danger">Upload failed. Please try again.</div>';
-            uploadStatus.style.display = 'block';
-        };
-
-        xhr.send(formData);
-    } catch (error) {
-        uploadStatus.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
-        uploadStatus.style.display = 'block';
+        } catch (error) {
+            showError('Upload error: ' + error.message);
+        }
     }
-});
+}
 
-// Access form handling
-document.getElementById('access-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
+async function uploadFile(formData, fileId) {
+    try {
+        const response = await fetch('http://localhost:3000/api/upload', {
+            method: 'POST',
+            body: formData
+        });
 
-    const filename = document.getElementById('access-filename').value.trim();
-    const password = document.getElementById('access-password').value.trim();
-    const accessStatus = document.getElementById('access-status');
+        updateUploadProgress(fileId, 100);
+        return await response.json();
+    } catch (error) {
+        throw new Error('Upload failed: ' + error.message);
+    }
+}
+
+function updateUploadProgress(fileId, progress) {
+    const fileElement = document.querySelector(`[data-file-id="${fileId}"]`);
+    if (fileElement) {
+        const progressCircle = fileElement.querySelector('.progress-ring-circle');
+        const circumference = 2 * Math.PI * 10;
+        const offset = circumference - (progress / 100) * circumference;
+        progressCircle.style.strokeDashoffset = offset;
+    }
+}
+
+// Download Handling
+document.getElementById('download-btn').addEventListener('click', handleDownload);
+
+async function handleDownload() {
+    const fileLink = document.querySelector('#download-section input[type="text"]').value;
+    const password = document.querySelector('#download-section input[type="password"]').value;
 
     try {
-        const response = await fetch(`http://localhost:3000/access?filename=${filename}&password=${password}`);
-        
+        const response = await fetch(fileLink, {
+            method: 'GET',
+            headers: {
+                'x-password': password
+            }
+        });
+
         if (response.ok) {
-            // If response is OK, create a blob and download it
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = filename;
+            a.download = getFilenameFromResponse(response);
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-
-            accessStatus.innerHTML = '<div class="alert alert-success">File downloaded successfully!</div>';
-            accessStatus.style.display = 'block';
+            showSuccess('File downloaded successfully!');
         } else {
-            // If response is not OK, show error message
             const error = await response.json();
-            accessStatus.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
-            accessStatus.style.display = 'block';
+            showError(error.message);
         }
     } catch (error) {
-        accessStatus.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
-        accessStatus.style.display = 'block';
+        showError('Download failed: ' + error.message);
     }
-});
+}
+
+// UI Helpers
+function showUploadSuccess(response) {
+    const shareLink = document.getElementById('share-link');
+    shareLink.value = response.downloadUrl;
+
+    // Generate QR Code
+    const qrContainer = document.getElementById('qr-code');
+    qrContainer.innerHTML = '';
+    new QRCode(qrContainer, {
+        text: response.downloadUrl,
+        width: 128,
+        height: 128
+    });
+
+    uploadModal.classList.remove('hidden');
+}
+
+function closeModal() {
+    uploadModal.classList.add('hidden');
+    // Clear file list and reset state
+    fileList.innerHTML = '';
+    files.clear();
+    updateUploadButton();
+}
+
+function copyToClipboard() {
+    const shareLink = document.getElementById('share-link');
+    shareLink.select();
+    document.execCommand('copy');
+    showSuccess('Link copied to clipboard!');
+}
+
+function showSuccess(message) {
+    Toastify({
+        text: message,
+        duration: 3000,
+        gravity: "top",
+        position: "right",
+        style: {
+            background: "#10B981",
+        }
+    }).showToast();
+}
+
+function showError(message) {
+    Toastify({
+        text: message,
+        duration: 3000,
+        gravity: "top",
+        position: "right",
+        style: {
+            background: "#EF4444",
+        }
+    }).showToast();
+}
+
+// Helper function to get filename from response headers
+function getFilenameFromResponse(response) {
+    const contentDisposition = response.headers.get('content-disposition');
+    if (contentDisposition && contentDisposition.indexOf('attachment') !== -1) {
+        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+        const matches = filenameRegex.exec(contentDisposition);
+        if (matches != null && matches[1]) {
+            return matches[1].replace(/['"]/g, '');
+        }
+    }
+    return 'downloaded-file';
+}
+
+// Initialize the UI
+updateUploadButton();

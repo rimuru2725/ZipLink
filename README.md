@@ -1,4 +1,4 @@
-# P2P File Sharing Web Application
+# ZipLink
 
 A peer-to-peer file sharing web application that allows users to upload, securely share, and access files using a simple and intuitive interface. The application uses a password protection mechanism, file expiration, and QR code generation for easy file sharing and download.
 
@@ -36,6 +36,7 @@ A peer-to-peer file sharing web application that allows users to upload, securel
 - **QRCode.js** (for generating QR codes)  
 - **File System (FS module in Node.js)**  
 - **Nodemailer (for future email notifications - optional)**
+
 
 ## 📄 Usage
 
