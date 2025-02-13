@@ -221,6 +221,6 @@ Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
 **[Website](https://ziplink.com)** • **[Documentation](docs)** • **[Report Bug](issues)** • **[Request Feature](issues)**
 
-Made with ❤️ by the ZipLink Team
+Made with ❤️ by VIVEK
 
 </div>
